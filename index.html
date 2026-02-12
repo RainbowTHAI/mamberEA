@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EA Membership Admin Panel (Supabase)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Supabase JS Library -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body { background-color: #0f172a; color: #e2e8f0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
+        .btn-emerald { @apply bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-4 rounded transition duration-200; }
+        input, select { @apply bg-slate-800 border border-slate-700 rounded p-2 outline-none focus:border-emerald-500 transition; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div class="max-w-6xl mx-auto">
+        <header class="flex justify-between items-center mb-8 glass p-6 rounded-2xl shadow-xl">
+            <div>
+                <h1 class="text-2xl font-bold text-emerald-400">EA License Manager <span class="text-xs font-normal text-slate-500">(Supabase)</span></h1>
+                <p class="text-slate-400 text-sm">ระบบจัดการสมาชิกผ่าน PostgreSQL Cloud Database</p>
+            </div>
+            <div id="admin-info" class="hidden text-right text-sm">
+                <p id="user-email" class="text-slate-300 font-mono mb-1"></p>
+                <button onclick="logout()" class="text-red-400 hover:text-red-300 underline">Logout</button>
+            </div>
+        </header>
+
+        <!-- Login Section -->
+        <div id="login-section" class="max-w-md mx-auto glass p-8 rounded-2xl shadow-2xl mt-20">
+            <h2 class="text-xl font-semibold mb-6 text-center italic text-emerald-300">Admin Login</h2>
+            <div class="space-y-4">
+                <div class="flex flex-col">
+                    <label class="text-xs text-slate-400 mb-1 uppercase">Email</label>
+                    <input type="email" id="email" placeholder="admin@example.com">
+                </div>
+                <div class="flex flex-col">
+                    <label class="text-xs text-slate-400 mb-1 uppercase">Password</label>
+                    <input type="password" id="password" placeholder="••••••••">
+                </div>
+                <button onclick="login()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-lg mt-2 transition duration-200 shadow-lg shadow-emerald-900/20">
+                    เข้าสู่ระบบ
+                </button>
+            </div>
+            <p id="login-error" class="text-red-400 text-sm mt-4 text-center"></p>
+        </div>
+
+        <!-- Dashboard Section -->
+        <div id="dashboard-section" class="hidden space-y-8">
+            
+            <!-- Add Member Form -->
+            <section class="glass p-6 rounded-2xl shadow-lg border-l-4 border-emerald-500">
+                <h2 class="text-lg font-semibold mb-4 text-emerald-300 italic flex items-center">
+                    <span class="mr-2">➕</span> เพิ่มสมาชิกใหม่
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                    <div class="flex flex-col">
+                        <label class="text-xs mb-1 text-slate-400 uppercase">Account Number</label>
+                        <input type="text" id="new-account" placeholder="เช่น 1234567">
+                    </div>
+                    <div class="flex flex-col">
+                        <label class="text-xs mb-1 text-slate-400 uppercase">Expiry Date</label>
+                        <input type="date" id="new-expiry">
+                    </div>
+                    <div class="flex flex-col">
+                        <label class="text-xs mb-1 text-slate-400 uppercase">Account Type</label>
+                        <select id="new-type">
+                            <option value="REAL">REAL (Lock Port)</option>
+                            <option value="DEMO">DEMO (Lock Time)</option>
+                        </select>
+                    </div>
+                    <button onclick="addMember()" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 px-4 rounded transition duration-200 shadow-lg shadow-blue-900/20">
+                        ยืนยันการเพิ่ม
+                    </button>
+                </div>
+            </section>
+
+            <!-- Members List -->
+            <section class="glass p-6 rounded-2xl shadow-lg overflow-hidden">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold text-emerald-300 italic">📋 รายชื่อสมาชิกในระบบ</h2>
+                    <button onclick="loadMembers()" class="text-xs text-slate-400 hover:text-white transition">🔄 Refresh List</button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead>
+                            <tr class="text-slate-400 border-b border-slate-700 text-sm">
+                                <th class="py-3 px-4">Account Number</th>
+                                <th class="py-3 px-4">Type</th>
+                                <th class="py-3 px-4">Expiry Date</th>
+                                <th class="py-3 px-4">Status</th>
+                                <th class="py-3 px-4 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="member-list" class="text-sm">
+                            <!-- Data rows injected here -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <script>
+        // --- การตั้งค่า SUPABASE อ้างอิงจากข้อมูลที่คุณให้มา ---
+        const SUPABASE_URL = 'https://kzfssgwhbdbytfeqrqss.supabase.co'; 
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt6ZnNzZ3doYmRieXRmZXFycXNzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5MTY0OTAsImV4cCI6MjA4NjQ5MjQ5MH0.De-n-HmXUc96T3OzcMSkKIVJG_jxHzk3yD2ZplauicA';
+        
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        // ตรวจสอบการ Login
+        async function checkAuth() {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            updateUI(session);
+
+            supabaseClient.auth.onAuthStateChange((_event, session) => {
+                updateUI(session);
+            });
+        }
+
+        function updateUI(session) {
+            const loginSection = document.getElementById('login-section');
+            const dashboardSection = document.getElementById('dashboard-section');
+            const adminInfo = document.getElementById('admin-info');
+
+            if (session) {
+                loginSection.classList.add('hidden');
+                dashboardSection.classList.remove('hidden');
+                adminInfo.classList.remove('hidden');
+                document.getElementById('user-email').innerText = session.user.email;
+                loadMembers();
+            } else {
+                loginSection.classList.remove('hidden');
+                dashboardSection.classList.add('hidden');
+                adminInfo.classList.add('hidden');
+            }
+        }
+
+        async function login() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+            if (error) {
+                document.getElementById('login-error').innerText = "เข้าสู่ระบบไม่สำเร็จ: " + error.message;
+            }
+        }
+
+        async function logout() {
+            await supabaseClient.auth.signOut();
+        }
+
+        // --- ระบบจัดการข้อมูล (CRUD) ---
+
+        async function loadMembers() {
+            const { data, error } = await supabaseClient
+                .from('members')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                console.error("Fetch Error:", error);
+                return;
+            }
+
+            const list = document.getElementById('member-list');
+            list.innerHTML = "";
+            
+            if(data.length === 0) {
+                list.innerHTML = `<tr><td colspan="5" class="py-10 text-center text-slate-500 italic">ไม่พบข้อมูลสมาชิกในระบบ</td></tr>`;
+                return;
+            }
+
+            data.forEach((member) => {
+                const row = `
+                    <tr class="border-b border-slate-800/50 hover:bg-slate-800/30 transition">
+                        <td class="py-4 px-4 font-mono font-bold text-emerald-100">${member.account_number}</td>
+                        <td class="py-4 px-4">
+                            <span class="px-2 py-1 rounded text-[10px] font-bold ${member.type === 'REAL' ? 'bg-amber-900/40 text-amber-400 border border-amber-800' : 'bg-slate-700 text-slate-300'}">${member.type}</span>
+                        </td>
+                        <td class="py-4 px-4 text-slate-300 font-mono">${member.expiry_date}</td>
+                        <td class="py-4 px-4">
+                            <span class="px-2 py-1 rounded text-[10px] font-bold ${member.status === 'ACTIVE' ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-800' : 'bg-red-900/40 text-red-400 border border-red-800'}">${member.status}</span>
+                        </td>
+                        <td class="py-4 px-4 text-right space-x-3">
+                            <button onclick="toggleStatus('${member.account_number}', '${member.status}')" class="text-xs text-blue-400 hover:text-blue-300 transition">สลับสถานะ</button>
+                            <button onclick="deleteMember('${member.account_number}')" class="text-xs text-red-400 hover:text-red-300 transition">ลบ</button>
+                        </td>
+                    </tr>
+                `;
+                list.innerHTML += row;
+            });
+        }
+
+        async function addMember() {
+            const account_number = document.getElementById('new-account').value.trim();
+            const expiry_date = document.getElementById('new-expiry').value;
+            const type = document.getElementById('new-type').value;
+
+            if (!account_number || !expiry_date) return alert("กรุณากรอก Account Number และ วันหมดอายุ");
+
+            const { error } = await supabaseClient
+                .from('members')
+                .insert([{ account_number, expiry_date, type, status: 'ACTIVE' }]);
+
+            if (error) {
+                alert("เกิดข้อผิดพลาด: " + error.message);
+            } else {
+                document.getElementById('new-account').value = "";
+                loadMembers();
+            }
+        }
+
+        async function toggleStatus(account_number, currentStatus) {
+            const status = currentStatus === 'ACTIVE' ? 'DISABLED' : 'ACTIVE';
+            const { error } = await supabaseClient
+                .from('members')
+                .update({ status })
+                .eq('account_number', account_number);
+            
+            if (error) alert(error.message);
+            else loadMembers();
+        }
+
+        async function deleteMember(account_number) {
+            if (!confirm("คุณแน่ใจหรือไม่ว่าต้องการลบสมาชิกเลขพอร์ต " + account_number + "?")) return;
+            const { error } = await supabaseClient
+                .from('members')
+                .delete()
+                .eq('account_number', account_number);
+            
+            if (error) alert(error.message);
+            else loadMembers();
+        }
+
+        // เริ่มต้นการทำงาน
+        checkAuth();
+    </script>
+</body>
+</html>
